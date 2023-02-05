@@ -1,33 +1,29 @@
-import os, json, argparse, torch
-from tqdm import tqdm
+import os, argparse, torch
 
-from module.data import load_dataloader
-from module.model import load_model
-
-from module.train import Trainer
 from module.test import Tester
+from module.train import Trainer
+from module.data import load_dataloader
 
-from transformers import (set_seed, 
-						  BigBirdTokenizerFast,
-						  LongformerTokenizerFast)
+from tqdm import tqdm
+from transformers import (set_seed,
+                          PegasusTokenizerFast,
+                          BigBirdPegasusConfig,
+                          BigBirdPegasusForConditionalGeneration)
 
 
 
 class Config(object):
     def __init__(self, args):    
 
-        self.mode = args.mode
-        self.model_name = args.model
-        
-        if self.model_name == 'bigbird':
-        	self.mname = "google/bigbird-roberta-base"        
-        else:
-	        self.mname = 'allenai/longformer-base-4096'
+        self.mode = args.mode        
+        self.tok_path = 'data/tokenizer'
+        self.ckpt = f"ckpt/summarizer.pt"
 
         self.clip = 1
-        self.lr = 5e-5
+        self.lr = 5e-4
+        self.max_len = 128
         self.n_epochs = 10
-        self.batch_size = 16
+        self.batch_size = 32
         self.iters_to_accumulate = 4
         
         use_cuda = torch.cuda.is_available()
@@ -38,8 +34,6 @@ class Config(object):
         else:
             self.device = torch.device('cuda' if use_cuda else 'cpu')
 
-        self.ckpt = f'ckpt/{self.model_name}.pt'
-
 
     def print_attr(self):
         for attribute, value in self.__dict__.items():
@@ -47,32 +41,59 @@ class Config(object):
 
 
 
+def print_model_desc(model):
 
-def load_tokenizer(config):
-	if config.mname == 'bigbird':
-		return BigBirdTokenizerFast.from_pretrained(config.mname)
+    def count_params(model):
+        params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+        return params
 
-	elif config.mname == 'longformer':
-		return LongformerTokenizerFast.from_pretrained(config.mname)
-	
+    def check_size(model):
+        param_size, buffer_size = 0, 0
 
+        for param in model.parameters():
+            param_size += param.nelement() * param.element_size()
+        
+        for buffer in model.buffers():
+            buffer_size += buffer.nelement() * buffer.element_size()
 
+        size_all_mb = (param_size + buffer_size) / 1024**2
+        return size_all_mb
 
-def train(config, model, tokenizer):
-    train_dataloader = load_dataloader(tokenizer, 'train', config.batch_size)
-    valid_dataloader = load_dataloader(tokenizer, 'valid', config.batch_size)
-    trainer = Trainer(config, model, train_dataloader, valid_dataloader)
-    trainer.train()
-
-
-def test(config, model, tokenizer):
-    test_dataloader = load_dataloader(tokenizer, 'test', config.batch_size)
-    tester = Tester(config, model, tokenizer, test_dataloader)
-    tester.test()    
+    print(f"--- Model Params: {count_params(model):,}")
+    print(f"--- Model  Size : {check_size(model):.3f} MB\n")
 
 
 
-def inference(model, tokenizer):
+def init_weights(model):
+    initrange = 0.1
+    model.encoder.weight.data.uniform_(-initrange, initrange)
+    model.decoder.bias.data.zero_()
+    model.decoder.weight.data.uniform_(-initrange, initrange)    
+
+
+
+def load_model(config):
+
+    model_cfg = BigBirdPegasusConfig()
+    model_cfg.vocab_size = config.vocab_size
+    model_cfg.update({'decoder_start_token_id': config.pad_id})
+    model = BigBirdPegasusForConditionalGeneration(model_cfg)
+    model.apply(init_weights)
+
+    print(f"Model for {config.task.upper()} Translator {config.mode.upper()} has loaded")
+
+    if config.mode != 'train':
+        assert os.path.exists(config.ckpt)
+        model_state = torch.load(config.ckpt, map_location=config.device)['model_state_dict']        
+        model.load_state_dict(model_state)
+        print(f"Model States has loaded from {config.ckpt}")
+
+    print_model_desc(model)
+    return model.to(config.device)
+
+
+
+def inference(config, model, tokenizer):
     model.eval()
     print(f'--- Inference Process Started! ---')
     print('[ Type "quit" on user input to stop the Process ]')
@@ -87,44 +108,62 @@ def inference(model, tokenizer):
 
         #convert user input_seq into model input_ids
         input_ids = tokenizer(input_seq)['input_ids']
-        output_ids = model.generate(input_ids, beam_size=4, do_sample=True, use_cache=True)
+        output_ids = model.generate(input_ids, 
+                                    beam_size=4,
+                                    do_sample=True, 
+                                    max_new_tokens=config.max_len, 
+                                    use_cache=True)
         output_seq = tokenizer.decode(output_ids, skip_special_tokens=True)
 
-        #Search Output Sequence
+        #Print Output Sequence
         print(f"Model Out Sequence >> {output_seq}")       
+
+
+
+def train(config, model, tokenizer):
+    train_dataloader = load_dataloader(config, tokenizer, 'train')
+    valid_dataloader = load_dataloader(config, tokenizer, 'valid')
+    trainer = Trainer(config, model, train_dataloader, valid_dataloader)
+    trainer.train()
+
+
+
+def test(config, model, tokenizer):
+    test_dataloader = load_dataloader(config, tokenizer, 'test')
+    tester = Tester(config, model, tokenizer, test_dataloader)
+    tester.test()    
+    return
 
 
 
 def main(args):
     set_seed(42)
+    config = Config(args)
 
-    config = Config(args)    
-    model = load_model(config)
-    tokenizer = load_tokenizer(config)
-
+    tokenizer = PegasusTokenizerFast.from_pretrained(config.tok_path, model_max_length=config.max_len)
     setattr(config, 'pad_id', tokenizer.pad_token_id)
-
+    setattr(config, 'vocab_size', tokenizer.vocab_size)
+    model = load_model(config)
 
     if config.mode == 'train':
         train(config, model, tokenizer)
-    
+        return
+
     elif config.mode == 'test':
         test(config, model, tokenizer)
+        return
     
     elif config.mode == 'inference':
-        inference(model, tokenizer)    
+        inference(config, model, tokenizer)
+        return
+
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('-mode', required=True)
-    parser.add_argument('-model', required=True)
+    parser.add_argument('-task', required=True)
     
     args = parser.parse_args()
-    assert args.mode in ['train', 'test', 'infernece']
-    assert args.model in ['bigbird', 'longformer']
+    assert args.mode in ['train', 'test', 'inference']
 
-    if args.mode in ['test', 'infernece']:
-        assert os.path.exists('ckpt/{args.model}.pt')
-    
     main(args)

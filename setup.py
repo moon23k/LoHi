@@ -1,51 +1,71 @@
 import os, re, json
 from datasets import load_dataset
+from transformers import PegasusTokenizerFast
 
 
 
-def filter_data(orig_data, volumn=36000):
-    min_len=500 
-    max_len=2000
+def preprocess_data(data_obj, volumn=34000):
+    
+    min_len, max_len = 2000, 3000
+    orig_list, summ_list, volumn_cnt = [], [], 0
 
-    volumn_cnt = 0
-    processed = []
+    for elem in data_obj:
 
-    for elem in orig_data:
-        orig, summ = elem['article'].lower(), elem['highlights'].lower()
-
-        #Filter too Short or too Long Context
-        if not (min_len < len(orig) < max_len):
-            continue
-        if len(summ) > min_len:
-            continue
-
-        summ = re.sub(r'\n', ' ', summ.strip())         #remove \n
-        summ = re.sub(r"\s([.](?:\s|$))", r'\1', summ)  #remove whitespace in front of dot
+        if volumn_cnt == 32000:
+            break
         
-        processed.append({'orig': orig, 'summ': summ})
+        orig = elem['article'].lower()
+
+        if not (min_len <= len(orig) <= max_len):
+            continue
+        
+        summ = elem['highlights'].lower()
+        summ = re.sub(r"\s([.](?:\s|$))", r'\1', summ)  #remove whitespace in front of dot
+        summ = re.sub('\n', ' ', summ.strip())          #replace new line with whitespace
+
+        orig_list.append(orig)
+        summ_list.append(summ)
 
         volumn_cnt += 1
-        if volumn_cnt == volumn:
-            break
-    
-    return processed
+
+    return orig_list, summ_list
     
 
 
-def main():
-    #Load and filter dataset
-    orig = load_dataset('cnn_dailymail', '3.0.0', split='train')
-    filtered = filter_data(orig)
+def train_tokenizer(train_data):
+    
+    mname = 'google/bigbird-pegasus-large-arxiv'
+    old_tokenizer = PegasusTokenizerFast.from_pretrained(mname, model_max_length=128)
+
+    new_tokenizer = old_tokenizer.train_new_from_iterator(train_data, max_vocab_size=30000)
+    new_tokenizer.save_pretrained('data/tokenizer')
+    
+    del old_tokenizer 
+    del new_tokenizer
 
 
-    #Split and save dataset
-    train, valid, test = filtered[:-6000], filtered[-6000:-3000], filtered[-3000:]
+
+def save_data(orig_data, summ_data):
+
+    tot_data = []
+    for orig, summ in zip(orig_data, summ_data):
+        tot_data.append({'orig': orig, 'summ': summ})
+
+    train, valid, test = tot_data[:-4000], tot_data[-4000:-1000], tot_data[-1000:]
     data_dict = {k:v for k, v in zip(['train', 'valid', 'test'], [train, valid, test])}
 
     for key, val in data_dict.items():
         with open(f'data/{key}.json', 'w') as f:
             json.dump(val, f)        
         assert os.path.exists(f'data/{key}.json')
+
+
+
+def main():
+    data = load_dataset('cnn_dailymail', '3.0.0', split='train')
+    orig_data, summ_data = preprocess_data(data)
+    train_tokenizer(orig_data + summ_data)
+    save_data(orig_data, summ_data)
 
 
 
