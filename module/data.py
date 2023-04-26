@@ -1,16 +1,17 @@
 import json, torch
 from torch.utils.data import DataLoader
+from torch.nn.utils.rnn import pad_sequence
 
 
 
 class Dataset(torch.utils.data.Dataset):
     def __init__(self, split):
         super().__init__()
-        self.split = split
-        self.data = self.load_data()
+        self.data = self.load_data(split)
 
-    def load_data(self):
-        with open(f"data/{self.split}.json", 'r') as f:
+    @staticmethod
+    def load_data(split):
+        with open(f"data/{split}.json", 'r') as f:
             data = json.load(f)
         return data
 
@@ -18,31 +19,36 @@ class Dataset(torch.utils.data.Dataset):
         return len(self.data)
     
     def __getitem__(self, idx):
-        orig = self.data[idx]['orig']
-        summ = self.data[idx]['summ']
-        return orig, summ
+        ids = self.data[idx]['input_ids']
+        label = self.data[idx]['labels']
+        
+        return {'input_ids': ids,
+                'labels': label}
 
 
 
-def load_dataloader(config, tokenizer, split):
-    
-    def collate_fn(batch):
-        orig_batch, summ_batch = [], []
-        for orig, summ in batch:
-            orig_batch.append(orig) 
-            summ_batch.append(summ)
+class Collator(object):
+    def __init__(self, pad_id):
+        self.pad_id = pad_id
 
-        orig_encodings = tokenizer(orig_batch, padding=True, truncation=True, return_tensors='pt')
-        summ_encodings = tokenizer(summ_batch, padding=True, truncation=True, return_tensors='pt')
+    def __call__(self, batch):
+        ids_batch, label_batch = [], []
+        
+        for elem in batch:
+            ids_batch.append(torch.LongTensor(elem['input_ids'])) 
+            label_batch.append(torch.LongTensor(elem['labels']))
 
-        return {'input_ids': orig_encodings.input_ids,
-                'attention_mask': orig_encodings.attention_mask,
-                'labels': summ_encodings.input_ids}
+        return {'input_ids': self.pad_batch(ids_batch),
+                'labels': self.pad_batch(label_batch)}
+
+    def pad_batch(self, batch):
+        return pad_sequence(batch, batch_first=True, padding_value=self.pad_id)
 
 
+def load_dataloader(config, split):
     return DataLoader(Dataset(split), 
                       batch_size=config.batch_size, 
-                      shuffle=True,
-                      collate_fn=collate_fn,
-                      num_workers=2,
-                      pin_memory=True)
+                      shuffle=True if config.mode == 'train' else False, 
+                      collate_fn=Collator(config.pad_id), 
+                      num_workers=2)
+        

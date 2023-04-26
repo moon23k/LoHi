@@ -1,38 +1,53 @@
 import os, argparse, torch
-
+from module.model import load_model
+from module.data import load_dataloader
 from module.test import Tester
 from module.train import Trainer
-from module.data import load_dataloader
-
-from tqdm import tqdm
-from transformers import (set_seed,
-                          PegasusTokenizerFast,
-                          BigBirdPegasusConfig,
-                          BigBirdPegasusForConditionalGeneration)
+from transformers import set_seed, AutoTokenizer 
 
 
 
 class Config(object):
     def __init__(self, args):    
 
-        self.mode = args.mode        
-        self.tok_path = 'data/tokenizer'
-        self.ckpt = f"ckpt/summarizer.pt"
+        self.mode = args.mode
+        self.model_type = args.model        
+        self.strategy = args.strategy
 
+        if self.model_type == 'big'
+            self.mname = "google/bigbird-roberta-base"
+        elif self.model_type == 'long':
+            self.mname = "allenai/longformer-base-4096"
+        
+        #Training args
         self.clip = 1
         self.lr = 5e-4
-        self.max_len = 128
         self.n_epochs = 10
         self.batch_size = 32
         self.iters_to_accumulate = 4
+        self.ckpt = f"ckpt/{self.strategy}_{self.model_type}.pt"
         
-        use_cuda = torch.cuda.is_available()
-        self.device_type = 'cuda' if use_cuda else 'cpu'
+        self.early_stop = True
+        self.patience = 3
+
+        #Model args
+        self.n_heads = 8
+        self.n_layers = 6
+        self.pff_dim = 2048
+        self.bert_dim = 768
+        self.hidden_dim = 512
+        self.dropout_ratio = 0.1
+        self.model_max_length = 1024
+        self.act = 'gelu'
+        self.norm_first = True
+        self.batch_first = True
 
         if self.mode == 'inference':
+            self.search_method = args.search
             self.device = torch.device('cpu')
         else:
-            self.device = torch.device('cuda' if use_cuda else 'cpu')
+            self.search_method = None
+            self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 
     def print_attr(self):
@@ -40,56 +55,6 @@ class Config(object):
             print(f"* {attribute}: {value}")
 
 
-
-def print_model_desc(model):
-
-    def count_params(model):
-        params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-        return params
-
-    def check_size(model):
-        param_size, buffer_size = 0, 0
-
-        for param in model.parameters():
-            param_size += param.nelement() * param.element_size()
-        
-        for buffer in model.buffers():
-            buffer_size += buffer.nelement() * buffer.element_size()
-
-        size_all_mb = (param_size + buffer_size) / 1024**2
-        return size_all_mb
-
-    print(f"--- Model Params: {count_params(model):,}")
-    print(f"--- Model  Size : {check_size(model):.3f} MB\n")
-
-
-
-def init_weights(model):
-    initrange = 0.1
-    model.encoder.weight.data.uniform_(-initrange, initrange)
-    model.decoder.bias.data.zero_()
-    model.decoder.weight.data.uniform_(-initrange, initrange)    
-
-
-
-def load_model(config):
-
-    model_cfg = BigBirdPegasusConfig()
-    model_cfg.vocab_size = config.vocab_size
-    model_cfg.update({'decoder_start_token_id': config.pad_id})
-    model = BigBirdPegasusForConditionalGeneration(model_cfg)
-    model.apply(init_weights)
-
-    print(f"Model for {config.task.upper()} Translator {config.mode.upper()} has loaded")
-
-    if config.mode != 'train':
-        assert os.path.exists(config.ckpt)
-        model_state = torch.load(config.ckpt, map_location=config.device)['model_state_dict']        
-        model.load_state_dict(model_state)
-        print(f"Model States has loaded from {config.ckpt}")
-
-    print_model_desc(model)
-    return model.to(config.device)
 
 
 
@@ -120,37 +85,27 @@ def inference(config, model, tokenizer):
 
 
 
-def train(config, model, tokenizer):
-    train_dataloader = load_dataloader(config, tokenizer, 'train')
-    valid_dataloader = load_dataloader(config, tokenizer, 'valid')
-    trainer = Trainer(config, model, train_dataloader, valid_dataloader)
-    trainer.train()
-
-
-
-def test(config, model, tokenizer):
-    test_dataloader = load_dataloader(config, tokenizer, 'test')
-    tester = Tester(config, model, tokenizer, test_dataloader)
-    tester.test()    
-    return
-
-
 
 def main(args):
     set_seed(42)
     config = Config(args)
-
-    tokenizer = PegasusTokenizerFast.from_pretrained(config.tok_path, model_max_length=config.max_len)
+    tokenizer = AutoTokenizer.from_pretrained(config.mname)
     setattr(config, 'pad_id', tokenizer.pad_token_id)
     setattr(config, 'vocab_size', tokenizer.vocab_size)
     model = load_model(config)
 
+
     if config.mode == 'train':
-        train(config, model, tokenizer)
+        train_dataloader = load_dataloader(config, tokenizer, 'train')
+        valid_dataloader = load_dataloader(config, tokenizer, 'valid')
+        trainer = Trainer(config, model, train_dataloader, valid_dataloader)
+        trainer.train()
         return
 
     elif config.mode == 'test':
-        test(config, model, tokenizer)
+        test_dataloader = load_dataloader(config, tokenizer, 'test')
+        tester = Tester(config, model, tokenizer, test_dataloader)
+        tester.test()    
         return
     
     elif config.mode == 'inference':
@@ -161,9 +116,17 @@ def main(args):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('-task', required=True)
+    parser.add_argument('-mode', required=True)
+    parser.add_argument('-strategy', required=True)
+    parser.add_argument('-model', required=True)
+    parser.add_argument('-search', default='greedy', required=False)
     
     args = parser.parse_args()
     assert args.mode in ['train', 'test', 'inference']
+    assert args.strategy in ['fine', 'fuse']
+    assert args.model in ['long', 'big']
 
+    if args.task == 'inference':
+        assert args.search in ['greedy', 'beam']
+    
     main(args)

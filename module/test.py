@@ -1,4 +1,6 @@
-import torch, time, evaluate
+import torch, math, time
+import torch.nn as nn
+import evaluate
 
 
 
@@ -9,8 +11,8 @@ class Tester:
         self.model = model
         self.tokenizer = tokenizer
         self.device = config.device
-        self.max_len = config.max_len
         self.dataloader = test_dataloader
+        self.metric_module = evaluate.load('rouge')
 
 
     @staticmethod
@@ -18,33 +20,35 @@ class Tester:
         elapsed_time = end_time - start_time
         elapsed_min = int(elapsed_time / 60)
         elapsed_sec = int(elapsed_time - (elapsed_min * 60))
-        return f"{elapsed_min}m {elapsed_sec}s"
+        return f"{elapsed_min}m {elapsed_sec}s"    
 
 
     def test(self):
         self.model.eval()
-        metric_module = evaluate.load('rouge1')
-        
-        start_time = time.time()
+        tot_len, greedy_score, beam_score = 0, 0, 0
+
         with torch.no_grad():
-            for _, batch in enumerate(self.dataloader):   
-                
-                input_ids = batch['input_ids'].to(self.device)
-                labels = batch['labels'].to(self.device)
-                                
-                preds = self.model.generate(input_ids, 
-                                            max_new_tokens=self.max_len, 
-                                            use_cache=True)
-                
-                preds = self.tokenizer.batch_decode(preds, skip_special_tokens=True)
-                labels = self.tokenizer.batch_decode(labels, skip_special_tokens=True)
+            for batch in tqdm(self.dataloader):
 
-                metric_module.add_batch(predictions=preds, 
-                                        references=[[l] for l in labels])    
+                greedy_pred = self.search.greedy_search()
+                beam_pred = self.search.beam_search()
 
-        metric_score = metric_module.compute()['rouge1'] * 100
+                greedy_score += self.metric_score(greedy_pred, trg)
+                beam_score += self.metric_score(beam_pred, trg)                
+        
+        greedy_score = round(greedy_score/tot_len, 2)
+        beam_score = round(beam_score/tot_len, 2)
+        
+        return greedy_score, beam_score
 
-        print('Test Results')
-        print(f"  >> ROUGE Score: {metric_score:.2f}")
-        print(f"  >> Spent Time: {self.measure_time(start_time, time.time())}")
-    
+
+
+    def metric_score(self, pred, label):
+
+        pred = self.tokenizer.batch_decode(pred)
+        label = self.tokenizer.batch_decode(label.tolist())
+
+        #For Translation and Summarization Tasks
+        score = self.metric_module.compute(pred, label)['rouge2']
+
+        return (score * 100)
