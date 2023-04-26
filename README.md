@@ -1,7 +1,6 @@
-## Summarization Pooling Or Sparse?
+## Summarization Studies with Hierarchical and Flat Architectures
 
-Most current NLP models, including BERT and GPT, are based on Transformers Architecture. The core idea of Transformer is attention mechanism, which has a quadratic complexity, so there is a limit to dealing with long sentences. To solve this, **Pooling** the representation of each sentence through a hierarchical encoder or **Sparse Attention** are usually utilized. This repo compares two methods in detail.
-
+**Text Summarization Task** takes long Text Sequences as inputs and returns Summarized output sequences. However, the Transformer structure inevitably requires a quadratic computational cost in proportion to the length of the sentence it handles.
 
 
 <br>
@@ -9,9 +8,11 @@ Most current NLP models, including BERT and GPT, are based on Transformers Archi
 
 ## Strategies
 
-**Pooling** <br>
+**Hierarchical Architecture** <br>
 
-**Sparse Attention**
+<br>
+
+**Flat Architecture**
 
 <br>
 <br>
