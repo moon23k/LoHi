@@ -1,21 +1,36 @@
-## Summarization Studies with Hierarchical and Flat Architectures
+## Summarization Studies on Sparse Attention Models
 
-**Text Summarization Task** takes long Text Sequences as inputs and returns Summarized output sequences. However, the Transformer structure inevitably requires a quadratic computational cost in proportion to the length of the sentence it handles.
+Standard Attention Mechanism requirews quadratic complexity depending on the input sequence length. This is major drwaback in Text Summarization Task, which takes long sequences as input values. To mend this problem, sparse attention mechanism has introduced, and the major pretrained model with this sparse attention mechanism is **Big Bird** and **Longformer**.
+This repo uses Two models in two different strategies. And we'll trying to figure out pros and cons of using sparse attention mechanism.
+
 
 
 <br>
 <br>
+
+## Models
+
+**Longformer** <br>
+
+<br>
+
+**Big Bird** <br>
+
+<br>
+<br>
+
 
 ## Strategies
 
-**Hierarchical Architecture** <br>
+**Simple Fine Tuning** <br>
 
 <br>
 
-**Flat Architecture**
+**Fused Fine Tuning** <br>
 
 <br>
 <br>
+
 
 ## Experimental Setup
 
