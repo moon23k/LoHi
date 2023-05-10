@@ -29,7 +29,7 @@ class Trainer:
                                           {'params': model.decoder.parameters()},
                                           {'params': model.generator.parameters()}], lr=config.lr)
         elif self.strategy == 'fuse':
-            self.optimizer = optim.AdamW([{'params': model.plm.parameters(), 'lr': config.lr * 0.1},
+            self.optimizer = optim.AdamW([{'params': model.bert.parameters(), 'lr': config.lr * 0.1},
                                           {'params': model.encoder.parameters()},
                                           {'params': model.decoder.parameters()},
                                           {'params': model.generator.parameters()}], lr=config.lr)
@@ -119,10 +119,11 @@ class Trainer:
             idx += 1
 
             x = batch['input_ids'].to(self.device) 
+            x_seg_mask = batch['token_type_ids'].to(self.device)
             y = batch['labels'].to(self.device)
 
             with torch.autocast(device_type=self.device.type, dtype=torch.float16):
-                loss = self.model(x, y).loss
+                loss = self.model(x, x_seg_mask, y).loss
                 loss /= self.iters_to_accumulate
             
             self.scaler.scale(loss).backward()
@@ -154,10 +155,11 @@ class Trainer:
         with torch.no_grad():
             for batch in self.valid_dataloader:                
                 x = batch['input_ids'].to(self.device) 
+                x_seg_mask = batch['token_type_ids'].to(self.device)
                 y = batch['labels'].to(self.device)
 
                 with torch.autocast(device_type=self.device.type, dtype=torch.float16):
-                    loss = self.model(x, y).loss
+                    loss = self.model(x, x_seg_mask, y).loss
 
                 epoch_loss += loss.item()
         

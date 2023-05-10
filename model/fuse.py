@@ -56,16 +56,16 @@ class EncoderLayer(nn.Module):
     def __init__(self, config):
         super(EncoderLayer, self).__init__()
         
-        self.plm_attn = AttnBlock(config)
+        self.bert_attn = AttnBlock(config)
         self.self_attn = AttnBlock(config)
         self.pff = PffBlock(config)
 
 
-    def forward(self, x, plm_out, x_pad_mask):
-        plm_attn_out = self.plm_attn(x, plm_out, plm_out, x_pad_mask)
+    def forward(self, x, bert_out, x_pad_mask):
+        bert_attn_out = self.bert_attn(x, bert_out, bert_out, x_pad_mask)
         self_attn_out = self.self_attn(x, x, x, x_pad_mask)
         
-        x = x + (plm_attn_out * 0.5) + (self_attn_out * 0.5)
+        x = x + (bert_attn_out * 0.5) + (self_attn_out * 0.5)
 
         return x + self.pff(x)
 
@@ -76,36 +76,36 @@ class DecoderLayer(nn.Module):
     def __init__(self, config):
         super(DecoderLayer, self).__init__()
         
-        self.plm_attn = AttnBlock(config)
+        self.bert_attn = AttnBlock(config)
         self.self_attn = AttnBlock(config)
         self.enc_dec_attn = AttnBlock(config)
         self.pff = PffBlock(config)
 
 
-    def forward(self, x, plm_out, memory, x_sub_mask, x_pad_mask, m_pad_mask):
+    def forward(self, x, bert_out, memory, x_sub_mask, x_pad_mask, m_pad_mask):
         self_attn_out = self.self_attn(x, x, x, x_pad_mask, x_sub_mask)
         x = x + self_attn_out
 
-        plm_attn_out = self.bert_attn(x, plm_out, plm_out, m_pad_mask)
+        bert_attn_out = self.bert_attn(x, bert_out, bert_out, m_pad_mask)
         self_attn_out = self.self_attn(x, memory, memory, m_pad_mask)
-        x = x + (plm_attn_out * 0.5) + (self_attn_out * 0.5)
+        x = x + (bert_attn_out * 0.5) + (self_attn_out * 0.5)
 
         return x + self.pff(x)
 
 
 
 class Encoder(nn.Module):
-    def __init__(self, config, embeddings):
+    def __init__(self, config, bert_embeddings):
         super(Encoder, self).__init__()
 
-        self.embeddings = embeddings
+        self.embeddings = bert_embeddings
         self.layers = clones(EncoderLayer(config), config.n_layers)
         
 
-    def forward(self, x , plm_out, x_pad_mask):
+    def forward(self, x , bert_out, x_pad_mask):
         x = self.embeddings(x)
         for layer in self.layers:
-            x = layer(x, plm_out, x_pad_mask)
+            x = layer(x, bert_out, x_pad_mask)
         return x
 
 
@@ -118,24 +118,24 @@ class Decoder(nn.Module):
         self.layers = clones(DecoderLayer(config), config.n_layers)
 
         
-    def forward(self, x, plm_out, memory, x_sub_mask, x_pad_mask, m_pad_mask):
+    def forward(self, x, bert_out, memory, x_sub_mask, x_pad_mask, m_pad_mask):
         x = self.embeddings(x)
         for layer in self.layers:
-            x = layer(x, plm_out, memory, x_sub_mask, x_pad_mask, m_pad_mask)
+            x = layer(x, bert_out, memory, x_sub_mask, x_pad_mask, m_pad_mask)
         return x
 
 
 class FuseModel(nn.Module):
-    def __init__(self, config, plm):
+    def __init__(self, config, bert, bert_embeddings):
         super(FuseModel, self).__init__()
         
         self.pad_id = config.pad_id
         self.device = config.device
         self.vocab_size = config.vocab_size
 
-        self.plm = plm
-        self.encoder = Encoder(config, copy.deepcopy(plm.embeddings))
-        self.decoder = Decoder(config, copy.deepcopy(plm.embeddings))
+        self.bert = bert
+        self.encoder = Encoder(config, copy.deepcopy(bert_embeddings))
+        self.decoder = Decoder(config, copy.deepcopy(bert_embeddings))
         self.generator = nn.Linear(config.hidden_dim, config.vocab_size)
 
         self.criterion = nn.CrossEntropyLoss(ignore_index=config.pad_id, 
@@ -145,11 +145,12 @@ class FuseModel(nn.Module):
 
 
 
-    def forward(self, x, y):
+    def forward(self, x, x_seg_mask, y):
 
         #shift y
         y_input = y[:, :-1]
         y_label = y[:, 1:]
+
 
         #create masks
         x_pad_mask = (x == self.pad_id).to(self.device)
@@ -157,10 +158,13 @@ class FuseModel(nn.Module):
         y_size = y_input.size(1)
         y_sub_mask = torch.triu(torch.full((y_size, y_size), float('-inf')), diagonal=1).to(self.device)
 
+        bert_out = self.bert(input_ids=x, token_type_ids=x_seg_mask, 
+                             attention_mask=x_pad_mask).last_hidden_state        
 
-        plm_out = self.plm(input_ids=x, attention_mask=x_pad_mask).last_hidden_state        
-        memory = self.encoder(x, plm_out, x_pad_mask)
-        d_out = self.decoder(y_input, plm_out, memory, y_sub_mask, y_pad_mask, x_pad_mask)
+        memory = self.encoder(x, bert_out, x_pad_mask)
+        
+        d_out = self.decoder(y_input, bert_out, memory, y_sub_mask, y_pad_mask, x_pad_mask)
+        
         logits = self.generator(d_out)
         
         loss = self.criterion(logits.view(-1, self.vocab_size), 

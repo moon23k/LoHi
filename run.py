@@ -1,9 +1,10 @@
-import os, argparse, torch
+import copy, argparse, torch
 from module.model import load_model
 from module.data import load_dataloader
 from module.test import Tester
 from module.train import Trainer
-from transformers import set_seed, AutoTokenizer 
+from transformers import set_seed, BertModel, BertTokenizerFast
+
 
 
 
@@ -11,22 +12,17 @@ class Config(object):
     def __init__(self, args):    
 
         self.mode = args.mode
-        self.model_type = args.model        
         self.strategy = args.strategy
+        self.bert_name = 'prajjwal1/bert-small'
 
-        if self.model_type == 'big'
-            self.mname = "google/bigbird-roberta-base"
-        elif self.model_type == 'long':
-            self.mname = "allenai/longformer-base-4096"
-        
         #Training args
         self.clip = 1
-        self.lr = 5e-4
         self.n_epochs = 10
         self.batch_size = 32
+        self.lr = 5e-4
         self.iters_to_accumulate = 4
-        self.ckpt = f"ckpt/{self.strategy}_{self.model_type}.pt"
-        
+        self.ckpt_path = f"ckpt/{self.strategy}.pt"
+
         self.early_stop = True
         self.patience = 3
 
@@ -48,7 +44,7 @@ class Config(object):
         else:
             self.search_method = None
             self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
+        
 
     def print_attr(self):
         for attribute, value in self.__dict__.items():
@@ -56,77 +52,70 @@ class Config(object):
 
 
 
-
-
 def inference(config, model, tokenizer):
-    model.eval()
-    print(f'--- Inference Process Started! ---')
-    print('[ Type "quit" on user input to stop the Process ]')
+    print('Type "quit" to terminate Summarization')
     
     while True:
-        input_seq = input('\nUser Input Sequence >> ').lower()
+        user_input = input('Please Type Text >> ')
+        if user_input.lower() == 'quit':
+            print('--- Terminate the Summarization ---')
+            print('-' * 30)
+            break
 
-        #End Condition
-        if input_seq == 'quit':
-            print('\n--- Inference Process has terminated! ---')
-            break        
+        src = config.src_tokenizer.Encode(user_input)
+        src = torch.LongTensor(src).unsqueeze(0).to(config.device)
 
-        #convert user input_seq into model input_ids
-        input_ids = tokenizer(input_seq)['input_ids']
-        output_ids = model.generate(input_ids, 
-                                    beam_size=4,
-                                    do_sample=True, 
-                                    max_new_tokens=config.max_len, 
-                                    use_cache=True)
-        output_seq = tokenizer.decode(output_ids, skip_special_tokens=True)
+        if config.search == 'beam':
+            pred_seq = config.search.beam_search(src)
+        elif config.search == 'greedy':
+            pred_seq = config.search.greedy_search(src)
 
-        #Print Output Sequence
-        print(f"Model Out Sequence >> {output_seq}")       
-
+        print(f" Original  Sequence: {user_input}")
+        print(f'Summarized Sequence: {tokenizer.Decode(pred_seq)}\n')
 
 
 
 def main(args):
     set_seed(42)
     config = Config(args)
-    tokenizer = AutoTokenizer.from_pretrained(config.mname)
-    setattr(config, 'pad_id', tokenizer.pad_token_id)
-    setattr(config, 'vocab_size', tokenizer.vocab_size)
+    tokenizer = BertTokenizerFast.from_pretrained(config.bert_name)
+    config.pad_id = tokenizer.pad_token_id
+    config.vocab_size = tokenizer.vocab_size
     model = load_model(config)
 
 
-    if config.mode == 'train':
-        train_dataloader = load_dataloader(config, tokenizer, 'train')
-        valid_dataloader = load_dataloader(config, tokenizer, 'valid')
+    if config.mode == 'train': 
+        train_dataloader = load_dataloader(config, 'train')
+        valid_dataloader = load_dataloader(config, 'valid')
         trainer = Trainer(config, model, train_dataloader, valid_dataloader)
         trainer.train()
         return
 
     elif config.mode == 'test':
-        test_dataloader = load_dataloader(config, tokenizer, 'test')
+        test_dataloader = load_dataloader(config, 'test')
         tester = Tester(config, model, tokenizer, test_dataloader)
-        tester.test()    
+        tester.test()
         return
     
     elif config.mode == 'inference':
         inference(config, model, tokenizer)
         return
-
+    
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('-mode', required=True)
     parser.add_argument('-strategy', required=True)
-    parser.add_argument('-model', required=True)
     parser.add_argument('-search', default='greedy', required=False)
     
     args = parser.parse_args()
     assert args.mode in ['train', 'test', 'inference']
     assert args.strategy in ['fine', 'fuse']
-    assert args.model in ['long', 'big']
 
     if args.task == 'inference':
+        import nltk
+        nltk.download('punkt')
         assert args.search in ['greedy', 'beam']
-    
+
     main(args)

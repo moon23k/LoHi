@@ -2,7 +2,7 @@ import torch, os
 import torch.nn as nn
 from model.fine import FineModel
 from model.fuse import FuseModel
-from transformers import BigBirdModel, LongformerModel
+from transformers import BertModel
 
 
 
@@ -16,7 +16,6 @@ def init_weights(model):
         if any([x in name for x in except_list]):
             continue
         nn.init.xavier_uniform_(param)    
-
 
 
 def print_model_desc(model):
@@ -41,28 +40,44 @@ def print_model_desc(model):
 
 
 
+def load_bert(config):
+    bert = BertModel.from_pretrained(config.bert_name)
+    bert_embeddings = bert.embeddings
+
+    max_len = config.model_max_length
+    temp_emb = nn.Embedding(max_len, 512)
+    temp_emb.weight.data[:512] = bert.embeddings.position_embeddings.weight.data
+    temp_emb.weight.data[512:] = bert.embeddings.position_embeddings.weight.data[-1][None,:].repeat(max_len-512, 1)
+
+    bert.embeddings.position_embeddings = temp_emb
+
+    bert.config.max_position_embeddings = max_len
+    bert.embeddings.position_ids = torch.arange(max_len).expand((1, -1))
+    bert.embeddings.token_type_ids = torch.zeros(max_len, dtype=torch.long).expand((1, -1))
+    
+    return bert, bert_embeddings
+    
+
+
 def load_model(config):
+    #Load bert and embeddings
+    bert, bert_embeddings = load_bert(config)
 
-	if config.model_type == 'long':
-		plm = LongformerModel.from_pretrained("allenai/longformer-base-4096")
-	elif config.model_type == 'big':
-		plm = BigBirdModel.from_pretrained("google/bigbird-roberta-base")
+    #Load Initial Model
+    if config.strategy == 'fine':
+        model = FineModel(config, bert, bert_embeddings)
+    elif config.strategy == 'fuse':
+        model = FuseModel(config, bert, bert_embeddings)
 
-	if config.strategy == 'fine':
-		model = FineModel(config, plm)
-	elif config.strategy == 'fuse':
-		model = FuseModel(config, plm)
+    init_weights(model)
+    print(f'{config.strategy.upper()} Model has Loaded')
 
-	init_weights(model)
-	print(f'{config.strategy.upper()} Model has Loaded')
+    if config.mode != 'train':
+        ckpt = config.ckpt
+        assert os.path.exists(ckpt)
+        model_state = torch.load(ckpt, map_location=config.device)['model_state_dict']
+        model.load_state_dict(model_state)
+        print(f"Model States has loaded from {ckpt}")
 
-	if config.mode != 'train':
-		ckpt = config.ckpt
-		assert os.path.exists(ckpt)
-		model_state = torch.load(ckpt, map_location=config.device)['model_state_dict']
-		model.load_state_dict(model_state)
-		print(f"Model States has loaded from {ckpt}")
-
-	print_model_desc(model)
-	return model.to(config.device)
-
+    print_model_desc(model)
+    return model.to(config.device)

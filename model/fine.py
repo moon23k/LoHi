@@ -30,15 +30,15 @@ class Decoder(nn.Module):
 
 
 class FineModel(nn.Module):
-    def __init__(self, config, plm):
+    def __init__(self, config, bert, bert_embeddings):
         super(FineModel, self).__init__()
         
         self.pad_id = config.pad_id
         self.device = config.device
         self.vocab_size = config.vocab_size
 
-        self.encoder = plm
-        self.decoder = Decoder(config, copy.deepcopy(plm.embeddings))
+        self.encoder = bert
+        self.decoder = Decoder(config, copy.deepcopy(bert_embeddings))
         self.generator = nn.Linear(config.hidden_dim, config.vocab_size)
 
         self.criterion = nn.CrossEntropyLoss(ignore_index=config.pad_id, 
@@ -47,7 +47,7 @@ class FineModel(nn.Module):
 
 
 
-    def forward(self, x, y):
+    def forward(self, x, x_seg_mask, y):
 
         #shift y
         y_input = y[:, :-1]
@@ -61,7 +61,8 @@ class FineModel(nn.Module):
         y_sub_mask = torch.triu(torch.full((y_size, y_size), float('-inf')), diagonal=1).to(self.device)
         
 
-        memory = self.encoder(input_ids=x, attention_mask=x_pad_mask).last_hidden_state
+        memory = self.encoder(input_ids=x, token_type_ids=x_seg_mask, 
+                              attention_mask=x_pad_mask).last_hidden_state
         
         d_out = self.decoder(x=y_input, memory=memory, 
                              x_sub_mask=y_sub_mask, 
