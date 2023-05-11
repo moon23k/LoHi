@@ -118,8 +118,8 @@ class Trainer:
         for idx, batch in enumerate(self.train_dataloader):
             idx += 1
 
-            x = batch['input_ids'].to(self.device) 
-            x_seg_mask = batch['token_type_ids'].to(self.device)
+            x = batch['text'].to(self.device) 
+            x_seg_mask = batch['text_seg'].to(self.device)
             y = batch['labels'].to(self.device)
 
             with torch.autocast(device_type=self.device.type, dtype=torch.float16):
@@ -154,8 +154,8 @@ class Trainer:
         
         with torch.no_grad():
             for batch in self.valid_dataloader:                
-                x = batch['input_ids'].to(self.device) 
-                x_seg_mask = batch['token_type_ids'].to(self.device)
+                x = batch['text'].to(self.device) 
+                x_seg_mask = batch['text_seg'].to(self.device)
                 y = batch['labels'].to(self.device)
 
                 with torch.autocast(device_type=self.device.type, dtype=torch.float16):

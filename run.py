@@ -1,10 +1,10 @@
 import copy, argparse, torch
+import sentencepiece as spm
 from module.model import load_model
 from module.data import load_dataloader
 from module.test import Tester
 from module.train import Trainer
 from transformers import set_seed, BertModel, BertTokenizerFast
-
 
 
 
@@ -16,15 +16,14 @@ class Config(object):
         self.bert_name = 'prajjwal1/bert-small'
 
         #Training args
+        self.early_stop = True
+        self.patience = 3        
         self.clip = 1
+        self.lr = 5e-4
         self.n_epochs = 10
         self.batch_size = 32
-        self.lr = 5e-4
         self.iters_to_accumulate = 4
         self.ckpt_path = f"ckpt/{self.strategy}.pt"
-
-        self.early_stop = True
-        self.patience = 3
 
         #Model args
         self.n_heads = 8
@@ -49,6 +48,14 @@ class Config(object):
     def print_attr(self):
         for attribute, value in self.__dict__.items():
             print(f"* {attribute}: {value}")
+
+
+
+def load_tokenizer():
+    tokenizer = spm.SentencePieceProcessor()
+    tokenizer.load(f'data//tokenizer.model')
+    tokenizer.SetEncodeExtraOptions('bos:eos')
+    return tokenizer
 
 
 
@@ -78,9 +85,9 @@ def inference(config, model, tokenizer):
 def main(args):
     set_seed(42)
     config = Config(args)
-    tokenizer = BertTokenizerFast.from_pretrained(config.bert_name)
-    config.pad_id = tokenizer.pad_token_id
-    config.vocab_size = tokenizer.vocab_size
+    tokenizer = load_tokenizer()
+    setattr(config, 'pad_id', tokenizer.pad_id())
+    setattr(config, 'vocab_size', tokenizer.vocab_size())
     model = load_model(config)
 
 
