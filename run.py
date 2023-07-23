@@ -1,48 +1,38 @@
-import copy, argparse, torch
-import sentencepiece as spm
-from module.model import load_model
-from module.data import load_dataloader
+import numpy as np
+import os, yaml, random, argparse
+
+import torch
+import torch.backends.cudnn as cudnn
+
+from tokenizers import Tokenizer
+from tokenizers.processors import TemplateProcessing
+
 from module.test import Tester
 from module.train import Trainer
-from transformers import set_seed, BertModel, BertTokenizerFast
+from module.search import Search
+from module.model import load_model
+from module.data import load_dataloader
 
+
+
+def set_seed(SEED=42):
+    random.seed(SEED)
+    np.random.seed(SEED)
+    torch.manual_seed(SEED)
+    torch.cuda.manual_seed(SEED)
+    torch.cuda.manual_seed_all(SEED)
+    cudnn.benchmark = False
+    cudnn.deterministic = True
 
 
 class Config(object):
     def __init__(self, args):    
 
         self.mode = args.mode
-        self.strategy = args.strategy
-        self.bert_name = 'prajjwal1/bert-small'
+        self.hierarchical = args.hierarchical
 
-        #Training args
-        self.early_stop = True
-        self.patience = 3        
-        self.clip = 1
-        self.lr = 5e-4
-        self.n_epochs = 10
-        self.batch_size = 32
-        self.iters_to_accumulate = 4
-        self.ckpt_path = f"ckpt/{self.strategy}.pt"
 
-        #Model args
-        self.n_heads = 8
-        self.n_layers = 6
-        self.pff_dim = 2048
-        self.bert_dim = 768
-        self.hidden_dim = 512
-        self.dropout_ratio = 0.1
-        self.model_max_length = 1024
-        self.act = 'gelu'
-        self.norm_first = True
-        self.batch_first = True
 
-        if self.mode == 'inference':
-            self.search_method = args.search
-            self.device = torch.device('cpu')
-        else:
-            self.search_method = None
-            self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         
 
     def print_attr(self):
@@ -113,12 +103,12 @@ def main(args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('-mode', required=True)
-    parser.add_argument('-strategy', required=True)
+    parser.add_argument('-hierarchical', required=True)
     parser.add_argument('-search', default='greedy', required=False)
     
     args = parser.parse_args()
     assert args.mode in ['train', 'test', 'inference']
-    assert args.strategy in ['fine', 'fuse']
+    assert args.hierarchical in ['fine', 'fuse']
 
     if args.task == 'inference':
         import nltk

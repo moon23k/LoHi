@@ -1,3 +1,4 @@
+import numpy as np
 import json, itertools, torch
 from torch.utils.data import DataLoader
 from torch.nn.utils.rnn import pad_sequence
@@ -5,10 +6,11 @@ from torch.nn.utils.rnn import pad_sequence
 
 
 class Dataset(torch.utils.data.Dataset):
-    def __init__(self, tokenizer, bert_tokenizer, split):
+    def __init__(self, tokenizer, split, pad_id):
         super().__init__()
+
+        self.pad_id = pad_id
         self.tokenizer = tokenizer
-        self.bert_tokenizer = bert_tokenizer
         self.data = self.load_data(split)
 
     @staticmethod
@@ -20,26 +22,13 @@ class Dataset(torch.utils.data.Dataset):
     def __len__(self):
         return len(self.data)
     
-    def __getitem__(self, idx):
-        text = self.data[idx]['text']
-        summ = self.data[idx]['summ']
-
-        text_seg = []
-        text = self.bert_tokenizer(text).input_ids
+    def __getitem__(self, idx):        
+        src = self.data[idx]['src']
+        trg = self.data[idx]['trg']
         
-        for idx, ids in enumerate(text):
-            _len = len(ids)
-            if idx % 2:
-                temp = [1 for _ in range(_len)]
-            else:
-                temp = [0 for _ in range(_len)]
-            text_seg.extend(temp)
-
-        summ = self.tokenizer.EncodeAsIds(summ)
-        
-        return {'text': list(itertools.chain(*text)),
-                'text_seg': text_seg,
-                'summ': summ}
+        src_ids = [self.tokenizer.encode(x).ids for x in src]
+        trg_ids = torch.LongTensor(self.tokenizer.encode(trg).ids)
+        return src_ids, trg_ids, len(src_ids), max([len(x) for x in src_ids])
 
 
 
@@ -48,25 +37,37 @@ class Collator(object):
         self.pad_id = pad_id
 
     def __call__(self, batch):
-        text_batch, text_seg_batch, summ_batch = [], [], []
+        src_batch, trg_batch, num_batch, len_batch = list(zip(*batch))
+
+        src_batch = self.pad_src(src_batch, max(num_batch), max(len_batch))
+        trg_batch = pad_sequence(trg_batch, batch_first=True, padding_value=self.pad_id)
+
+        return {'src': src_batch, 
+                'trg': trg_batch}
+    
+    
+    def pad_src(self, batch, max_num, max_len):
+
+        padded_batch = np.full(
+            shape=(len(batch), max_num, max_len), 
+            fill_value=self.pad_id, 
+            dtype=int
+        )        
         
-        for elem in batch:
-            text_batch.append(torch.LongTensor(elem['text']))
-            text_seg_batch.append(torch.LongTensor(elem['text_seg']))
-            summ_batch.append(torch.LongTensor(elem['summ']))
+        for batch_idx, text in enumerate(batch):
+            for text_idx, sent in enumerate(text):
+                sent_pad = [self.pad_id for _ in range(max_len - len(sent))]
+                padded_batch[batch_idx, text_idx] = sent + sent_pad
 
-        return {'text': self.pad_batch(text_batch),
-                'text_seg': self.pad_batch(text_seg_batch),
-                'summ': self.pad_batch(summ_batch)}
-
-    def pad_batch(self, batch):
-        return pad_sequence(batch, batch_first=True, padding_value=self.pad_id)
+        return torch.LongTensor(padded_batch)
 
 
-def load_dataloader(config, tokenizer, bert_tokenizer, split):
-    return DataLoader(Dataset(tokenizer, bert_tokenizer, split), 
-                      batch_size=config.batch_size, 
-                      shuffle=True if config.mode == 'train' else False, 
-                      collate_fn=Collator(config.pad_id), 
-                      num_workers=2)
+def load_dataloader(config, tokenizer, split):
+    return DataLoader(
+        Dataset(tokenizer, split, config.pad_id), 
+        batch_size=config.batch_size, 
+        shuffle=True if config.mode == 'train' else False,
+        collate_fn=Collator(config.pad_id),
+        num_workers=2
+    )
     
