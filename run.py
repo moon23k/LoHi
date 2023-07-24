@@ -25,15 +25,30 @@ def set_seed(SEED=42):
     cudnn.deterministic = True
 
 
+
 class Config(object):
     def __init__(self, args):    
 
+        with open('config.yaml', 'r') as f:
+            params = yaml.load(f, Loader=yaml.FullLoader)
+            for group in params.keys():
+                for key, val in params[group].items():
+                    setattr(self, key, val)
+
         self.mode = args.mode
-        self.hierarchical = args.hierarchical
+        self.model_type = args.encoder
+        self.ckpt = f"ckpt/{self.model_type}.pt"
+        self.tokenizer_path = 'data/tokenizer.json'
 
-
-
+        use_cuda = torch.cuda.is_available()
+        self.device_type = 'cuda' if use_cuda else 'cpu'
         
+        if self.mode == 'inference':
+            self.search_method = search
+            self.device = torch.device('cpu')
+        else:
+            self.search = None
+            self.device = torch.device(self.device_type)
 
     def print_attr(self):
         for attribute, value in self.__dict__.items():
@@ -41,10 +56,16 @@ class Config(object):
 
 
 
-def load_tokenizer():
-    tokenizer = spm.SentencePieceProcessor()
-    tokenizer.load(f'data//tokenizer.model')
-    tokenizer.SetEncodeExtraOptions('bos:eos')
+def load_tokenizer(config):
+    assert os.path.exists(config.tokenizer_path)
+
+    tokenizer = Tokenizer.from_file(config.tokenizer_path)    
+    tokenizer.post_processor = TemplateProcessing(
+        single=f"{config.bos_token} $A {config.eos_token}",
+        special_tokens=[(config.bos_token, config.bos_id), 
+                        (config.eos_token, config.eos_id)]
+        )
+    
     return tokenizer
 
 
@@ -75,21 +96,19 @@ def inference(config, model, tokenizer):
 def main(args):
     set_seed(42)
     config = Config(args)
-    tokenizer = load_tokenizer()
-    setattr(config, 'pad_id', tokenizer.pad_id())
-    setattr(config, 'vocab_size', tokenizer.vocab_size())
     model = load_model(config)
+    tokenizer = load_tokenizer()
 
 
     if config.mode == 'train': 
-        train_dataloader = load_dataloader(config, 'train')
-        valid_dataloader = load_dataloader(config, 'valid')
+        train_dataloader = load_dataloader(config, tokenizer, 'train')
+        valid_dataloader = load_dataloader(config, tokenizer, 'valid')
         trainer = Trainer(config, model, train_dataloader, valid_dataloader)
         trainer.train()
         return
 
     elif config.mode == 'test':
-        test_dataloader = load_dataloader(config, 'test')
+        test_dataloader = load_dataloader(config, tokenizer, 'test')
         tester = Tester(config, model, tokenizer, test_dataloader)
         tester.test()
         return
@@ -103,12 +122,12 @@ def main(args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('-mode', required=True)
-    parser.add_argument('-hierarchical', required=True)
+    parser.add_argument('-encoder', required=True)
     parser.add_argument('-search', default='greedy', required=False)
     
     args = parser.parse_args()
     assert args.mode in ['train', 'test', 'inference']
-    assert args.hierarchical in ['fine', 'fuse']
+    assert args.encoder in ['base', 'hier']
 
     if args.task == 'inference':
         import nltk

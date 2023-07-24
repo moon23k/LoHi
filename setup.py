@@ -23,9 +23,8 @@ def load_data():
 
 
 def process_data(orig_data):
-    corpus, processed = [], []
     max_num, min_len, max_len = 35, 500, 3000
-
+    corpus, base_data, hier_data = [], [], []
 
     for elem in orig_data:
         src = elem['article'].lower()
@@ -41,7 +40,8 @@ def process_data(orig_data):
                     trg = re.sub(r'\n', ' ', trg)                 #remove \n
                     trg = re.sub(r"\s([.](?:\s|$))", r'\1', trg)  #remove whitespace in front of dot
 
-                    processed.append({'src': sents, 'trg': trg})
+                    base_data.append({'src': src, 'trg': trg})
+                    hier_data.append({'src': sents, 'trg': trg})
                     corpus.append(src)
                     corpus.append(trg)
 
@@ -49,7 +49,7 @@ def process_data(orig_data):
     with open('data/corpus.txt', 'w') as f:
         f.write('\n'.join(corpus))
     
-    return processed           
+    return base_data, hier_data           
 
 
 
@@ -75,24 +75,25 @@ def train_tokenizer():
 
 
 
-def save_data(data_obj):
+def save_data(data_obj, prefix):
     #split data into train/valid/test sets
     train, valid, test = data_obj[:-1100], data_obj[-1100:-100], data_obj[-100:]
     data_dict = {k:v for k, v in zip(['train', 'valid', 'test'], [train, valid, test])}
 
     for key, val in data_dict.items():
-        with open(f'data/{key}.json', 'w') as f:
+        with open(f'data/{prefix}_{key}.json', 'w') as f:
             json.dump(val, f)
-        assert os.path.exists(f'data//{key}.json')
+        assert os.path.exists(f'data/{prefix}_{key}.json')
 
 
 
 def main():
     nltk.download('punkt')
     orig_data = load_data()
-    processed = process_data(orig_data)
+    base_data, hier_data = process_data(orig_data)
     train_tokenizer()
-    save_data(processed)
+    save_data(base_data, 'base')
+    save_data(hier_data, 'hier')
 
 
 

@@ -6,16 +6,17 @@ from torch.nn.utils.rnn import pad_sequence
 
 
 class Dataset(torch.utils.data.Dataset):
-    def __init__(self, tokenizer, split, pad_id):
+    def __init__(self, config, tokenizer, split):
         super().__init__()
 
-        self.pad_id = pad_id
+        self.pad_id = config.pad_id
+        self.model_type = config.model_type
         self.tokenizer = tokenizer
         self.data = self.load_data(split)
 
-    @staticmethod
-    def load_data(split):
-        with open(f"data/{split}.json", 'r') as f:
+
+    def load_data(self, split):
+        with open(f"data/{self.model_type}_{split}.json", 'r') as f:
             data = json.load(f)
         return data
 
@@ -25,28 +26,55 @@ class Dataset(torch.utils.data.Dataset):
     def __getitem__(self, idx):        
         src = self.data[idx]['src']
         trg = self.data[idx]['trg']
+
+        if self.model_type == 'base':
+            src_ids = self.tokenizer(src).ids
+            trg_ids = self.tokenizer(trg).ids
+
+            return torch.LongTensor(src_ids), torch.LongTensor(trg_ids)
         
-        src_ids = [self.tokenizer.encode(x).ids for x in src]
-        trg_ids = torch.LongTensor(self.tokenizer.encode(trg).ids)
-        return src_ids, trg_ids, len(src_ids), max([len(x) for x in src_ids])
+        elif self.model_type == 'hier':
+            src_ids = [self.tokenizer.encode(x).ids for x in src]
+            trg_ids = torch.LongTensor(self.tokenizer.encode(trg).ids)
+            return src_ids, trg_ids, len(src_ids), max([len(x) for x in src_ids])
 
 
 
 class Collator(object):
-    def __init__(self, pad_id):
+    def __init__(self, config):
         self.pad_id = pad_id
+        self.model_type = config.model_type
 
     def __call__(self, batch):
-        src_batch, trg_batch, num_batch, len_batch = list(zip(*batch))
+        if self.model_type == 'base':
+            return self.base_collate(batch)
+        elif self.model_type == 'hier':
+            return self.hier_collate(batch)
 
-        src_batch = self.pad_src(src_batch, max(num_batch), max(len_batch))
-        trg_batch = pad_sequence(trg_batch, batch_first=True, padding_value=self.pad_id)
+    def base_collate(self, batch):
+        src_batch, trg_batch = zip(*batch)
+        src_batch = self.base_pad(src_batch)
+        trg_batch = self.base_pad(trg_batch)
 
         return {'src': src_batch, 
                 'trg': trg_batch}
+
+
+    def base_pad(self, batch):
+        return pad_sequence(batch, batch_first=True, padding_value=self.pad_id)
+
+
+    def hier_collate(self, batch):
+        src_batch, trg_batch, num_batch, len_batch = zip(*batch)
+
+        src_batch = self.hier_pad(src_batch, max(num_batch), max(len_batch))
+        trg_batch = self.base_pad(trg_batch)
+
+        return {'src': src_batch, 
+                'trg': trg_batch}
+
     
-    
-    def pad_src(self, batch, max_num, max_len):
+    def hier_pad(self, batch, max_num, max_len):
 
         padded_batch = np.full(
             shape=(len(batch), max_num, max_len), 
@@ -62,12 +90,14 @@ class Collator(object):
         return torch.LongTensor(padded_batch)
 
 
+
+
 def load_dataloader(config, tokenizer, split):
     return DataLoader(
-        Dataset(tokenizer, split, config.pad_id), 
+        Dataset(config, tokenizer, split), 
         batch_size=config.batch_size, 
         shuffle=True if config.mode == 'train' else False,
-        collate_fn=Collator(config.pad_id),
+        collate_fn=Collator(config),
         num_workers=2
     )
     

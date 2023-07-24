@@ -28,7 +28,7 @@ class Tester:
         tot_len, greedy_score, beam_score = 0, 0, 0
 
         with torch.no_grad():
-            for batch in tqdm(self.dataloader):
+            for batch in self.dataloader:
 
                 greedy_pred = self.search.greedy_search()
                 beam_pred = self.search.beam_search()

@@ -1,6 +1,9 @@
-import torch, os
+import os, torch
 import torch.nn as nn
-from model.hier_model import HierTransformer
+from model.common import Summarizer
+from model.hier_encoder import HierEncoder
+from model.base_encoder import HierBaseEncoder
+
 
 
 
@@ -31,10 +34,16 @@ def print_model_desc(model):
 
 
 def load_model(config):
-    model = HierTransformer(config)
     
+    if config.model_type == 'base':
+        encoder = BaseEncoder(config)
+    elif config.model_type == 'hier':
+        encoder = HierEncoder(config)
+    
+    model = Summarizer(config, encoder)
+
     init_weights(model)
-    print(f"Initialized {config.model_type} model has loaded")
+    print(f"Initialized {config.hierarchical} model has loaded")
 
     if config.mode != 'train':
         assert os.path.exists(config.ckpt)
