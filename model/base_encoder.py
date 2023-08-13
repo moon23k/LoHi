@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from model.common import (
+from .common import (
     clones,
     Embeddings, 
     PositionalEncoding, 

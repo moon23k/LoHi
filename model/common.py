@@ -10,10 +10,10 @@ def clones(module, N):
 
 
 class PositionalEncoding(nn.Module):
-    def __init__(self, config, max_len=512):
+    def __init__(self, config):
         super(PositionalEncoding, self).__init__()
         
-        pe = torch.zeros(max_len, config.emb_dim)
+        pe = torch.zeros(config.max_len, config.emb_dim)
         
         position = torch.arange(0, max_len).unsqueeze(1)
         div_term = torch.exp(torch.arange(0, config.emb_dim, 2) * -(math.log(10000.0) / config.emb_dim))
@@ -92,8 +92,6 @@ class SublayerConnection(nn.Module):
 
     def forward(self, x, sublayer):
         return x + self.dropout(sublayer(self.norm(x)))
-
-
 
 
 

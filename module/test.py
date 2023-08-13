@@ -1,17 +1,19 @@
-import torch, math, time
+import math, time, torch, evaluate
 import torch.nn as nn
-import evaluate
+from module import Generator
 
 
 
 class Tester:
-    def __init__(self, config, model, tokenizer, test_dataloader):
+    def __init__(self, config, model, tokenizer, test_dataloader, test_volumn=100):
         super(Tester, self).__init__()
         
         self.model = model
         self.tokenizer = tokenizer
         self.device = config.device
+        self.test_volumn = test_volumn
         self.dataloader = test_dataloader
+        self.generator = Generator(config)
         self.metric_module = evaluate.load('rouge')
 
 
@@ -25,30 +27,24 @@ class Tester:
 
     def test(self):
         self.model.eval()
-        tot_len, greedy_score, beam_score = 0, 0, 0
+        greedy_score, beam_score = 0, 0
 
         with torch.no_grad():
             for batch in self.dataloader:
 
-                greedy_pred = self.search.greedy_search()
-                beam_pred = self.search.beam_search()
+                greedy_pred = self.generator.generate()
+                beam_pred = self.generator.generate()
 
                 greedy_score += self.metric_score(greedy_pred, trg)
                 beam_score += self.metric_score(beam_pred, trg)                
         
-        greedy_score = round(greedy_score/tot_len, 2)
-        beam_score = round(beam_score/tot_len, 2)
+        greedy_score = round(greedy_score/self.test_volumn, 2)
+        beam_score = round(beam_score/self.test_volumn, 2)
         
         return greedy_score, beam_score
 
 
 
     def metric_score(self, pred, label):
-
-        pred = self.tokenizer.batch_decode(pred)
-        label = self.tokenizer.batch_decode(label.tolist())
-
-        #For Translation and Summarization Tasks
-        score = self.metric_module.compute(pred, label)['rouge2']
-
+        score = self.metric_module.compute(pred, [label])['rouge2']
         return (score * 100)

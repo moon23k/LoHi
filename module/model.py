@@ -1,9 +1,6 @@
 import os, torch
 import torch.nn as nn
-from model.common import Summarizer
-from model.hier_encoder import HierEncoder
-from model.base_encoder import HierBaseEncoder
-
+from model import Summarizer, HierEncoder, BaseEncoder
 
 
 

@@ -20,8 +20,10 @@ class Dataset(torch.utils.data.Dataset):
             data = json.load(f)
         return data
 
+
     def __len__(self):
         return len(self.data)
+
     
     def __getitem__(self, idx):        
         src = self.data[idx]['src']
@@ -40,16 +42,19 @@ class Dataset(torch.utils.data.Dataset):
 
 
 
+
 class Collator(object):
     def __init__(self, config):
         self.pad_id = pad_id
         self.model_type = config.model_type
+
 
     def __call__(self, batch):
         if self.model_type == 'base':
             return self.base_collate(batch)
         elif self.model_type == 'hier':
             return self.hier_collate(batch)
+
 
     def base_collate(self, batch):
         src_batch, trg_batch = zip(*batch)
@@ -93,10 +98,11 @@ class Collator(object):
 
 
 def load_dataloader(config, tokenizer, split):
+    is_train = True if split == 'train' else False
     return DataLoader(
         Dataset(config, tokenizer, split), 
-        batch_size=config.batch_size, 
-        shuffle=True if config.mode == 'train' else False,
+        batch_size=config.batch_size if is_train else 1, 
+        shuffle=True if is_train else False,
         collate_fn=Collator(config),
         num_workers=2
     )
