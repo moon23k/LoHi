@@ -72,29 +72,6 @@ def load_tokenizer(config):
 
 
 
-def inference(config, model, tokenizer):
-    print('Type "quit" to terminate Summarization')
-    
-    while True:
-        user_input = input('Please Type Text >> ')
-        if user_input.lower() == 'quit':
-            print('--- Terminate the Summarization ---')
-            print('-' * 30)
-            break
-
-        src = config.src_tokenizer.Encode(user_input)
-        src = torch.LongTensor(src).unsqueeze(0).to(config.device)
-
-        if config.search == 'beam':
-            pred_seq = config.search.beam_search(src)
-        elif config.search == 'greedy':
-            pred_seq = config.search.greedy_search(src)
-
-        print(f" Original  Sequence: {user_input}")
-        print(f'Summarized Sequence: {tokenizer.Decode(pred_seq)}\n')
-
-
-
 def main(args):
     set_seed()
     config = Config(args)
@@ -116,7 +93,8 @@ def main(args):
         return
     
     elif config.mode == 'inference':
-        inference(config, model, tokenizer)
+        generator = Generator(config, model, tokenizer)
+        generator.inference()
         return
     
 

@@ -1,50 +1,79 @@
-import math, time, torch, evaluate
-import torch.nn as nn
-from module import Generator
+import math, torch, evaluate
+from module import load_dataloader
 
 
 
 class Tester:
-    def __init__(self, config, model, tokenizer, test_dataloader, test_volumn=100):
+    def __init__(self, config, model, tokenizer):
         super(Tester, self).__init__()
         
         self.model = model
         self.tokenizer = tokenizer
+        self.dataloader = load_dataloader(
+            config, tokenizer, 'test', shuffle=False
+        )
+
         self.device = config.device
-        self.test_volumn = test_volumn
-        self.dataloader = test_dataloader
-        self.generator = Generator(config)
+        self.pad_id = config.pad_id
+        self.bos_id = config.bos_id
+        self.eos_id = config.eos_id
+        self.max_len = config.max_len
+        
         self.metric_module = evaluate.load('rouge')
-
-
-    @staticmethod
-    def measure_time(start_time, end_time):
-        elapsed_time = end_time - start_time
-        elapsed_min = int(elapsed_time / 60)
-        elapsed_sec = int(elapsed_time - (elapsed_min * 60))
-        return f"{elapsed_min}m {elapsed_sec}s"    
-
+        
 
     def test(self):
+        score = 0.0         
         self.model.eval()
-        greedy_score, beam_score = 0, 0
 
         with torch.no_grad():
             for batch in self.dataloader:
+                pred = self.predict(batch['x'].to(self.device))
+                score += self.evaluate(pred, batch['y'])
 
-                greedy_pred = self.generator.generate()
-                beam_pred = self.generator.generate()
-
-                greedy_score += self.metric_score(greedy_pred, trg)
-                beam_score += self.metric_score(beam_pred, trg)                
-        
-        greedy_score = round(greedy_score/self.test_volumn, 2)
-        beam_score = round(beam_score/self.test_volumn, 2)
-        
-        return greedy_score, beam_score
+        txt = f"TEST Result\n"
+        txt += f"-- Score: {round(score/len(self.dataloader), 2)}\n"
+        print(txt)
 
 
+    def tokenize(self, batch):
+        return [self.tokenizer.decode(x) for x in batch.tolist()]
 
-    def metric_score(self, pred, label):
-        score = self.metric_module.compute(pred, [label])['rouge2']
-        return (score * 100)
+
+    def evaluate(self, pred, label):
+
+        pred = self.tokenize(pred)
+        if pred == ['' for _ in range(len(pred))]:
+            return 0.0
+
+        label = self.tokenize(label)
+
+        score = self.metric_module.compute(
+            predictions=pred, 
+            references =[[l] for l in label]
+        )['rouge2']
+
+        return score * 100
+
+
+    def predict(self, x):
+
+        batch_size = x.size(0)
+        pred = torch.zeros((batch_size, self.max_len)).fill_(self.pad_id)
+        pred = pred.type(torch.LongTensor).to(self.device)
+        pred[:, 0] = self.bos_id
+
+        e_mask = self.model.pad_mask(x)
+        memory = self.model.encode(x, e_mask)
+
+        for idx in range(1, self.max_len):
+            y = pred[:, :idx]
+            d_out, _ = self.model.decode(y, memory, None, e_mask, use_cache=False)
+
+            logit = self.model.generator(d_out)
+            pred[:, idx] = logit.argmax(dim=-1)[:, -1]
+
+            if (pred == self.eos_id).sum().item() == batch_size:
+                break
+
+        return pred

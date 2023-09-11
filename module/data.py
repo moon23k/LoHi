@@ -26,19 +26,18 @@ class Dataset(torch.utils.data.Dataset):
 
     
     def __getitem__(self, idx):        
-        src = self.data[idx]['src']
-        trg = self.data[idx]['trg']
+        x = self.data[idx]['src']
+        y = self.data[idx]['trg']
 
         if self.model_type == 'base':
-            src_ids = self.tokenizer(src).ids
-            trg_ids = self.tokenizer(trg).ids
-
-            return torch.LongTensor(src_ids), torch.LongTensor(trg_ids)
+            x = self.tokenizer(x).ids
+            x = self.tokenizer(y).ids
+            return torch.LongTensor(x), torch.LongTensor(y)
         
         elif self.model_type == 'hier':
-            src_ids = [self.tokenizer.encode(x).ids for x in src]
-            trg_ids = torch.LongTensor(self.tokenizer.encode(trg).ids)
-            return src_ids, trg_ids, len(src_ids), max([len(x) for x in src_ids])
+            x = [self.tokenizer.encode(sent).ids for sent in x]
+            y = torch.LongTensor(self.tokenizer.encode(y).ids)
+            return x, y, len(x), max([len(sent) for sent in x])
 
 
 
@@ -57,12 +56,10 @@ class Collator(object):
 
 
     def base_collate(self, batch):
-        src_batch, trg_batch = zip(*batch)
-        src_batch = self.base_pad(src_batch)
-        trg_batch = self.base_pad(trg_batch)
+        x_batch, y_batch = zip(*batch)
 
-        return {'src': src_batch, 
-                'trg': trg_batch}
+        return {'src': self.base_pad(x_batch), 
+                'trg': self.base_pad(y_batch)}
 
 
     def base_pad(self, batch):
@@ -70,13 +67,10 @@ class Collator(object):
 
 
     def hier_collate(self, batch):
-        src_batch, trg_batch, num_batch, len_batch = zip(*batch)
+        x_batch, y_batch, num_batch, len_batch = zip(*batch)
 
-        src_batch = self.hier_pad(src_batch, max(num_batch), max(len_batch))
-        trg_batch = self.base_pad(trg_batch)
-
-        return {'src': src_batch, 
-                'trg': trg_batch}
+        return {'x': self.hier_pad(x_batch, max(num_batch), max(len_batch)), 
+                'y': self.base_pad(y_batch)}
 
     
     def hier_pad(self, batch, max_num, max_len):
@@ -99,6 +93,7 @@ class Collator(object):
 
 def load_dataloader(config, tokenizer, split):
     is_train = True if split == 'train' else False
+    
     return DataLoader(
         Dataset(config, tokenizer, split), 
         batch_size=config.batch_size if is_train else 1, 

@@ -23,7 +23,7 @@ class Trainer:
         self.valid_dataloader = valid_dataloader
 
         self.optimizer = optim.AdamW(self.model.parameters(), lr=config.lr)
-        self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, 'min')
+        self.lr_scheduler = optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, patience=2)
 
         self.early_stop = config.early_stop
         self.patience = config.patience
@@ -71,7 +71,7 @@ class Trainer:
             self.print_epoch(record_dict)
             
             val_loss = record_dict['valid_loss']
-            self.scheduler.step(val_loss)
+            self.lr_scheduler.step(val_loss)
 
             #save best model
             if best_loss > val_loss:
@@ -108,11 +108,11 @@ class Trainer:
 
         for idx, batch in enumerate(self.train_dataloader):
             idx += 1
-            src = batch['src'].to(self.device)
-            trg = batch['trg'].to(self.device)
+            x = batch['x'].to(self.device)
+            y = batch['y'].to(self.device)
 
             with torch.autocast(device_type=self.device_type, dtype=torch.float16):
-                loss = self.model(src, trg).loss
+                loss = self.model(x, y).loss
                 loss = loss / self.iters_to_accumulate
             
             #Backward Loss
@@ -142,11 +142,11 @@ class Trainer:
         
         with torch.no_grad():
             for batch in self.valid_dataloader:
-                src = batch['src'].to(self.device)
-                trg = batch['trg'].to(self.device)
+                x = batch['x'].to(self.device)
+                y = batch['y'].to(self.device)
                 
                 with torch.autocast(device_type=self.device_type, dtype=torch.float16):
-                    loss = self.model(src, trg).loss
+                    loss = self.model(x, y).loss
 
                 epoch_loss += loss.item()
         
