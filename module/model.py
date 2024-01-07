@@ -1,6 +1,6 @@
 import os, torch
 import torch.nn as nn
-from model import Summarizer, HierEncoder, BaseEncoder
+from model import HierSummarizer, BaseSummarizer
 
 
 
@@ -33,11 +33,10 @@ def print_model_desc(model):
 def load_model(config):
     
     if config.model_type == 'base':
-        encoder = BaseEncoder(config)
+        model = BaseSummarizer(config)
     elif config.model_type == 'hier':
-        encoder = HierEncoder(config)
-    
-    model = Summarizer(config, encoder)
+        model = HierSummarizer(config)
+
 
     init_weights(model)
     print(f"Initialized {config.hierarchical} model has loaded")

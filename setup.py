@@ -65,10 +65,10 @@ def train_tokenizer():
     tokenizer.normalizer = normalizers.Sequence([NFD(), Lowercase(), StripAccents()])
     tokenizer.pre_tokenizer = Whitespace()
     trainer = BpeTrainer(vocab_size=vocab_config['vocab_size'], 
-                               special_tokens=[vocab_config['pad_token'], 
-                                               vocab_config['unk_token'],
-                                               vocab_config['bos_token'],
-                                               vocab_config['eos_token']])
+                         special_tokens=[vocab_config['pad_token'], 
+                                         vocab_config['unk_token'],
+                                         vocab_config['bos_token'],
+                                         vocab_config['eos_token']])
 
     tokenizer.train(files=[corpus_path], trainer=trainer)
     tokenizer.save("data/tokenizer.json")

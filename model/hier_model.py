@@ -64,3 +64,54 @@ class HierEncoder(nn.Module):
             x = layer(x, text_mask=text_mask)
 
         return x
+
+
+
+class HierSummarizer(nn.Module):
+    def __init__(self, config):
+        super(HierSummarizer, self).__init__()
+        
+        self.pad_id = config.pad_id
+        self.device = config.device
+        self.vocab_size = config.vocab_size
+        
+        self.encoder = HierEncoder(config)
+        self.decoder = Decoder(config)
+
+        self.generator = nn.Linear(config.hidden_dim, config.vocab_size)
+        self.criterion = nn.CrossEntropyLoss()
+        self.out = namedtuple('Out', 'logit loss')
+
+
+    def shift_trg(self, x):
+        return x[:, :-1], x[:, 1:]
+
+
+    def src_mask(self, x):
+        return
+
+
+    def trg_mask(self, x):
+        sz = x.size(1)
+        return torch.triu(torch.full((sz, sz), float('-inf')), diagonal=1)
+        
+
+    def forward(self, src, trg):
+        trg, label = self.shift_trg(trg)
+        sent_mask, text_mask = self.src_mask(src)
+        trg_mask = self.trg_mask(trg)
+        
+        memory = self.encoder(x, sent_mask, text_mask)
+        dec_out = self.decoder(trg, memory, tgt_mask=trg_mask,  
+                               memory_key_padding_mask=text_mask)
+        logit = self.generator(dec_out)
+        
+
+        #Getting Outputs
+        self.out.logit = logit
+        self.out.loss = self.criterion(
+            logit.contiguous().view(-1, self.vocab_size), 
+            label.contiguous().view(-1)
+        )
+        
+        return self.out        
