@@ -39,22 +39,22 @@ class Config(object):
 
         self.mode = args.mode
         self.model_type = args.encoder
-        self.ckpt = f"ckpt/{self.model_type}.pt"
+        self.search_method = args.search
+
+        self.ckpt = f"ckpt/{self.model_type}_model.pt"
         self.tokenizer_path = 'data/tokenizer.json'
 
         use_cuda = torch.cuda.is_available()
-        self.device_type = 'cuda' if use_cuda else 'cpu'
-        
-        if self.mode == 'inference':
-            self.search_method = search
-            self.device = torch.device('cpu')
-        else:
-            self.search = None
-            self.device = torch.device(self.device_type)
+        self.device_type = 'cuda' \
+                           if use_cuda and self.mode != 'inference' \
+                           else 'cpu'
+        self.device = torch.device(self.device_type)
+
 
     def print_attr(self):
         for attribute, value in self.__dict__.items():
             print(f"* {attribute}: {value}")
+
 
 
 

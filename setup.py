@@ -1,4 +1,4 @@
-import os, re, yaml, json
+import os, re, yaml, json, nltk
 from datasets import load_dataset
 from tokenizers.models import BPE
 from tokenizers import Tokenizer, normalizers
@@ -23,7 +23,10 @@ def load_data():
 
 
 def process_data(orig_data):
-    max_num, min_len, max_len = 35, 500, 3000
+    volumn_cnt, data_volumn = 0, 53100
+    min_len, max_len = 500, 2500
+    max_sent_num, max_sent_len = 30, 300
+    
     corpus, base_data, hier_data = [], [], []
 
     for elem in orig_data:
@@ -31,24 +34,27 @@ def process_data(orig_data):
         trg = elem['highlights'].lower()
 
         if min_len < len(src) < max_len:
-            if len(trg) < min_len:
+            if len(trg) < max_sent_len:
                 sents = nltk.tokenize.sent_tokenize(src)
                 len_chk = not sum([len(s) > min_len for s in sents])
 
-                if len(sents) < max_num and len_chk:
+                if len(sents) < max_sent_num and len_chk:                    
                     #Remove unnecessary characters in trg sequence
                     trg = re.sub(r'\n', ' ', trg)                 #remove \n
                     trg = re.sub(r"\s([.](?:\s|$))", r'\1', trg)  #remove whitespace in front of dot
 
-                    base_data.append({'src': src, 'trg': trg})
-                    hier_data.append({'src': sents, 'trg': trg})
+                    base_data.append({'x': src, 'y': trg})
+                    hier_data.append({'x': sents, 'y': trg})
                     corpus.append(src)
                     corpus.append(trg)
 
+                    volumn_cnt += 1
+                    if volumn_cnt == data_volumn:
+                        break
 
     with open('data/corpus.txt', 'w') as f:
         f.write('\n'.join(corpus))
-    
+
     return base_data, hier_data           
 
 
@@ -77,7 +83,7 @@ def train_tokenizer():
 
 def save_data(data_obj, prefix):
     #split data into train/valid/test sets
-    train, valid, test = data_obj[:-1100], data_obj[-1100:-100], data_obj[-100:]
+    train, valid, test = data_obj[:-3100], data_obj[-3100:-100], data_obj[-100:]
     data_dict = {k:v for k, v in zip(['train', 'valid', 'test'], [train, valid, test])}
 
     for key, val in data_dict.items():

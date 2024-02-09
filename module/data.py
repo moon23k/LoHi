@@ -26,12 +26,11 @@ class Dataset(torch.utils.data.Dataset):
 
     
     def __getitem__(self, idx):        
-        x = self.data[idx]['src']
-        y = self.data[idx]['trg']
+        x, y = self.data[idx]['x'], self.data[idx]['y']
 
         if self.model_type == 'base':
-            x = self.tokenizer(x).ids
-            x = self.tokenizer(y).ids
+            x = self.tokenizer.encode(x).ids
+            y = self.tokenizer.encode(y).ids
             return torch.LongTensor(x), torch.LongTensor(y)
         
         elif self.model_type == 'hier':
@@ -44,7 +43,7 @@ class Dataset(torch.utils.data.Dataset):
 
 class Collator(object):
     def __init__(self, config):
-        self.pad_id = pad_id
+        self.pad_id = config.pad_id
         self.model_type = config.model_type
 
 
@@ -58,8 +57,8 @@ class Collator(object):
     def base_collate(self, batch):
         x_batch, y_batch = zip(*batch)
 
-        return {'src': self.base_pad(x_batch), 
-                'trg': self.base_pad(y_batch)}
+        return {'x': self.base_pad(x_batch), 
+                'y': self.base_pad(y_batch)}
 
 
     def base_pad(self, batch):
@@ -92,12 +91,11 @@ class Collator(object):
 
 
 def load_dataloader(config, tokenizer, split):
-    is_train = True if split == 'train' else False
     
     return DataLoader(
         Dataset(config, tokenizer, split), 
-        batch_size=config.batch_size if is_train else 1, 
-        shuffle=True if is_train else False,
+        batch_size=config.batch_size, 
+        shuffle= split == 'train',
         collate_fn=Collator(config),
         num_workers=2
     )
