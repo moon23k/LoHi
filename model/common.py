@@ -1,6 +1,8 @@
 import copy, math, torch
 import torch.nn as nn
+import torch.nn.functional as F
 from collections import namedtuple
+
 
 
 
@@ -9,26 +11,29 @@ def clones(module, N):
 
 
 
+
 class PositionalEncoding(nn.Module):
     def __init__(self, config):
         super(PositionalEncoding, self).__init__()
         
-        pe = torch.zeros(config.max_len, config.emb_dim)
+        max_len = config.max_len
+        pe = torch.zeros(max_len, config.emb_dim)
         
         position = torch.arange(0, max_len).unsqueeze(1)
-        div_term = torch.exp(torch.arange(0, config.emb_dim, 2) * -(math.log(10000.0) / config.emb_dim))
+        div_term = torch.exp(
+            torch.arange(0, config.emb_dim, 2) * -(math.log(10000.0) / config.emb_dim)
+        )
         
         pe[:, 0::2] = torch.sin(position * div_term)
         pe[:, 1::2] = torch.cos(position * div_term)
         pe = pe.unsqueeze(0)
 
         self.register_buffer('pe', pe)
-        self.dropout = nn.Dropout(config.dropout_ratio)
         
 
     def forward(self, x):
-        out = x + self.pe[:, :x.size(1)]
-        return self.dropout(out)
+        return x + self.pe[:, :x.size(1)]
+
 
 
 
@@ -49,7 +54,11 @@ class Embeddings(nn.Module):
 
     def forward(self, x):
         out = self.tok_emb(x) * self.scale
-        out = self.pos_emb(out)
+        if len(out.shape) == 4:
+            batch_size, seq_num, seq_len, emb_dim = out.shape
+            out = self.pos_emb(out.view(-1, seq_len, emb_dim)).view(out.shape)
+        else:
+            out = self.pos_emb(out)
 
         if not self.use_fc_layer:
             return out
@@ -70,18 +79,6 @@ class PositionwiseFeedForward(nn.Module):
 
 
 
-class LayerNorm(nn.Module):
-    def __init__(self, features, eps=1e-6):
-        super(LayerNorm, self).__init__()
-        self.a_2 = nn.Parameter(torch.ones(features))
-        self.b_2 = nn.Parameter(torch.zeros(features))
-        self.eps = eps
-
-    def forward(self, x):
-        mean = x.mean(-1, keepdim=True)
-        std = x.std(-1, keepdim=True)
-        return self.a_2 * (x - mean) / (std + self.eps) + self.b_2
-
 
 
 class SublayerConnection(nn.Module):
@@ -96,54 +93,31 @@ class SublayerConnection(nn.Module):
 
 
 
-class MultiHeadAttention(nn.Module):
-    def __init__(self, config):
-        super(MultiHeadAttention, self).__init__()
-
-        self.attn = nn.MultiheadAttention(
-            embed_dim=config.hidden_dim, 
-            num_heads=config.n_heads, 
-            dropout=config.dropout_ratio,
-            batch_first=True
-        )        
-
-    def forward(self, q, k, v, pad_mask=None, attn_mask=None):
-        
-        out, _ = self.attn(
-            query=q, key=k, value=v,
-            key_padding_mask=pad_mask, 
-            attn_mask=attn_mask
-        )
-
-        return out
-
-
-
-
 class Decoder(nn.Module):
     def __init__(self, config):
         super(Decoder, self).__init__()
-        
+
         layer = nn.TransformerDecoderLayer(
             d_model=config.hidden_dim,
             nhead=config.n_heads,
             dim_feedforward=config.pff_dim,
             dropout=config.dropout_ratio,
             activation='gelu',
-            batch_first=True
+            batch_first=True,
+            norm_first=True
         )
 
         self.embeddings = Embeddings(config)
         self.layers = clones(layer, config.n_layers)
 
 
-    def forward(self, x, memory, tgt_mask, tgt_key_padding_mask, memory_key_padding_mask):
+    def forward(self, x, memory, e_mask=None, d_mask=None):
         x = self.embeddings(x)
         for layer in self.layers:
             x = layer(
                 x, memory, 
-                tgt_mask=tgt_mask,
-                tgt_key_padding_mask=tgt_key_padding_mask,
-                memory_key_padding_mask=memory_key_padding_mask
+                memory_key_padding_mask=e_mask,
+                tgt_mask=d_mask,
             )
-        return x        
+
+        return x

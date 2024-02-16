@@ -1,8 +1,6 @@
 import os, yaml, argparse, torch
-
 from tokenizers import Tokenizer
 from tokenizers.processors import TemplateProcessing
-
 from module import (
     load_dataloader,
     load_model,
@@ -30,7 +28,7 @@ def set_seed(SEED=42):
 
 class Config(object):
     def __init__(self, args):    
-
+        
         with open('config.yaml', 'r') as f:
             params = yaml.load(f, Loader=yaml.FullLoader)
             for group in params.keys():
@@ -38,7 +36,7 @@ class Config(object):
                     setattr(self, key, val)
 
         self.mode = args.mode
-        self.model_type = args.encoder
+        self.model_type = args.model
         self.search_method = args.search
 
         self.ckpt = f"ckpt/{self.model_type}_model.pt"
@@ -102,16 +100,16 @@ def main(args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('-mode', required=True)
-    parser.add_argument('-encoder', required=True)
+    parser.add_argument('-model', required=True)
     parser.add_argument('-search', default='greedy', required=False)
     
     args = parser.parse_args()
-    assert args.mode in ['train', 'test', 'inference']
-    assert args.encoder in ['base', 'hier']
+    assert args.mode.lower() in ['train', 'test', 'inference']
+    assert args.model.lower() in ['base', 'hier_lin', 'hier_rnn', 'hier_attn']
+    assert args.search.lower() in ['greedy', 'beam']
 
     if args.task == 'inference':
         import nltk
         nltk.download('punkt')
-        assert args.search in ['greedy', 'beam']
 
     main(args)

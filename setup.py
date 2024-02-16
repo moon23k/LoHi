@@ -24,21 +24,23 @@ def load_data():
 
 def process_data(orig_data):
     volumn_cnt, data_volumn = 0, 53100
-    min_len, max_len = 500, 2500
-    max_sent_num, max_sent_len = 30, 300
-    
     corpus, base_data, hier_data = [], [], []
+
+    src_min_len, src_max_len, trg_max_len = 1000, 2500, 500
+    min_sent_num, max_sent_num, max_sent_len = 10, 30, 300
+    
 
     for elem in orig_data:
         src = elem['article'].lower()
         trg = elem['highlights'].lower()
 
-        if min_len < len(src) < max_len:
-            if len(trg) < max_sent_len:
+        if src_min_len < len(src) < src_max_len:
+            if len(trg) < trg_max_len:
                 sents = nltk.tokenize.sent_tokenize(src)
-                len_chk = not sum([len(s) > min_len for s in sents])
 
-                if len(sents) < max_sent_num and len_chk:                    
+                sent_num_cond = min_sent_num <= len(sents) <= max_sent_num
+                sent_len_cond = not sum([len(s) > max_sent_len for s in sents])
+                if sent_num_cond and sent_len_cond:             
                     #Remove unnecessary characters in trg sequence
                     trg = re.sub(r'\n', ' ', trg)                 #remove \n
                     trg = re.sub(r"\s([.](?:\s|$))", r'\1', trg)  #remove whitespace in front of dot
@@ -95,9 +97,12 @@ def save_data(data_obj, prefix):
 
 def main():
     nltk.download('punkt')
+
     orig_data = load_data()
     base_data, hier_data = process_data(orig_data)
+    
     train_tokenizer()
+    
     save_data(base_data, 'base')
     save_data(hier_data, 'hier')
 
