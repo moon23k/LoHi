@@ -5,10 +5,8 @@ from collections import namedtuple
 
 
 
-
 def clones(module, N):
     return nn.ModuleList([copy.deepcopy(module) for _ in range(N)])
-
 
 
 
@@ -16,12 +14,13 @@ class PositionalEncoding(nn.Module):
     def __init__(self, config):
         super(PositionalEncoding, self).__init__()
         
-        max_len = config.max_len
-        pe = torch.zeros(max_len, config.emb_dim)
+        max_len = config.max_len * 2
+        hidden_dim = config.hidden_dim
+        pe = torch.zeros(max_len, config.hidden_dim)
         
         position = torch.arange(0, max_len).unsqueeze(1)
         div_term = torch.exp(
-            torch.arange(0, config.emb_dim, 2) * -(math.log(10000.0) / config.emb_dim)
+            torch.arange(0, hidden_dim, 2) * -(math.log(10000.0) / hidden_dim)
         )
         
         pe[:, 0::2] = torch.sin(position * div_term)
@@ -36,33 +35,26 @@ class PositionalEncoding(nn.Module):
 
 
 
-
 class Embeddings(nn.Module):
     def __init__(self, config):
         super(Embeddings, self).__init__()
 
-        self.tok_emb = nn.Embedding(config.vocab_size, config.emb_dim)
-        self.scale = math.sqrt(config.emb_dim)
-
+        self.tok_emb = nn.Embedding(config.vocab_size, config.hidden_dim)
+        self.scale = math.sqrt(config.hidden_dim)
         self.pos_emb = PositionalEncoding(config)
-
-        self.use_fc_layer = (config.emb_dim != config.hidden_dim)
-        if self.use_fc_layer:
-            self.fc = nn.Linear(config.emb_dim, config.hidden_dim)
-            self.fc_dropout = nn.Dropout(config.dropout_ratio)
 
 
     def forward(self, x):
         out = self.tok_emb(x) * self.scale
+
         if len(out.shape) == 4:
             batch_size, seq_num, seq_len, emb_dim = out.shape
-            out = self.pos_emb(out.view(-1, seq_len, emb_dim)).view(out.shape)
+            out = out.view(-1, seq_len, emb_dim)
+            out = self.pos_emb(out).view(batch_size, seq_num, seq_len, emb_dim)
         else:
             out = self.pos_emb(out)
 
-        if not self.use_fc_layer:
-            return out
-        return self.fc_dropout(self.fc(out))
+        return out
 
 
 
@@ -80,7 +72,6 @@ class PositionwiseFeedForward(nn.Module):
 
 
 
-
 class SublayerConnection(nn.Module):
     def __init__(self, config):
         super(SublayerConnection, self).__init__()
@@ -91,33 +82,3 @@ class SublayerConnection(nn.Module):
         return x + self.dropout(sublayer(self.norm(x)))
 
 
-
-
-class Decoder(nn.Module):
-    def __init__(self, config):
-        super(Decoder, self).__init__()
-
-        layer = nn.TransformerDecoderLayer(
-            d_model=config.hidden_dim,
-            nhead=config.n_heads,
-            dim_feedforward=config.pff_dim,
-            dropout=config.dropout_ratio,
-            activation='gelu',
-            batch_first=True,
-            norm_first=True
-        )
-
-        self.embeddings = Embeddings(config)
-        self.layers = clones(layer, config.n_layers)
-
-
-    def forward(self, x, memory, e_mask=None, d_mask=None):
-        x = self.embeddings(x)
-        for layer in self.layers:
-            x = layer(
-                x, memory, 
-                memory_key_padding_mask=e_mask,
-                tgt_mask=d_mask,
-            )
-
-        return x

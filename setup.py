@@ -24,7 +24,7 @@ def load_data():
 
 def process_data(orig_data):
     volumn_cnt, data_volumn = 0, 53100
-    corpus, base_data, hier_data = [], [], []
+    corpus, hier_data = [], []
 
     src_min_len, src_max_len, trg_max_len = 1000, 2500, 500
     min_sent_num, max_sent_num, max_sent_len = 10, 30, 300
@@ -45,7 +45,6 @@ def process_data(orig_data):
                     trg = re.sub(r'\n', ' ', trg)                 #remove \n
                     trg = re.sub(r"\s([.](?:\s|$))", r'\1', trg)  #remove whitespace in front of dot
 
-                    base_data.append({'x': src, 'y': trg})
                     hier_data.append({'x': sents, 'y': trg})
                     corpus.append(src)
                     corpus.append(trg)
@@ -83,15 +82,15 @@ def train_tokenizer():
 
 
 
-def save_data(data_obj, prefix):
+def save_data(data_obj):
     #split data into train/valid/test sets
     train, valid, test = data_obj[:-3100], data_obj[-3100:-100], data_obj[-100:]
     data_dict = {k:v for k, v in zip(['train', 'valid', 'test'], [train, valid, test])}
 
     for key, val in data_dict.items():
-        with open(f'data/{prefix}_{key}.json', 'w') as f:
+        with open(f'data/{key}.json', 'w') as f:
             json.dump(val, f)
-        assert os.path.exists(f'data/{prefix}_{key}.json')
+        assert os.path.exists(f'data/{key}.json')
 
 
 
@@ -99,12 +98,9 @@ def main():
     nltk.download('punkt')
 
     orig_data = load_data()
-    base_data, hier_data = process_data(orig_data)
-    
+    processed_data = process_data(orig_data)
     train_tokenizer()
-    
-    save_data(base_data, 'base')
-    save_data(hier_data, 'hier')
+    save_data(processed_data)
 
 
 

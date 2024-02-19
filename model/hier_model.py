@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from collections import namedtuple
 from .common import (
-    clones, Embeddings, Decoder,
+    clones, Embeddings,
     PositionalEncoding, 
     PositionwiseFeedForward,
     SublayerConnection
@@ -15,8 +15,6 @@ class EncoderLayer(nn.Module):
     def __init__(self, config):
         super(EncoderLayer, self).__init__()
 
-        self.model_type = config.model_type
-
         self.attn = nn.MultiheadAttention(
             config.hidden_dim,
             config.n_heads,
@@ -25,73 +23,99 @@ class EncoderLayer(nn.Module):
         self.pff = PositionwiseFeedForward(config)
         self.sublayer = clones(SublayerConnection(config), 2)
 
-        self.sent_pos = PositionalEncoding(config)
 
-        if self.model_type == 'hier_lin':
-            self.sent_lin = PositionwiseFeedForward(config)
+    def forward(self, x, mask):
+        is_lower = len(x.shape) == 4
 
-        elif self.model_type == 'hier_rnn':
-            self.rnn = nn.GRU(config.hidden_dim, config.hidden_dim)
-            self.act = F.gelu()
-            self.dropout = nn.Dropout(config.dropout_ratio)
-
-        elif self.model_type == 'hier_attn':
-            self.hier_attn = nn.MultiheadAttention(
-                config.hidden_dim,
-                config.n_heads,
-                batch_first=True
-            )
-            self.hier_pff = PositionwiseFeedForward(config)
-            self.hier_sublayer = clones(SublayerConnection(config), 2)
-
-
-
-    def forward(self, x, sent_mask, text_mask=None):
-
-        batch_size, seq_num, seq_len, hidden_dim = x.shape
-        x = x.view(batch_size * seq_num, seq_len, hidden_dim)
+        if is_lower:
+            batch_size, seq_num, seq_len, hidden_dim = x.shape
+            x = x.view(-1, seq_len, hidden_dim)
+            mask = mask.view(-1, seq_len)
 
         x = self.sublayer[0](
             x, lambda x: self.attn(
-                x, x, x, key_padding_mask=sent_mask
+                x, x, x, key_padding_mask=mask
                 )[0]
             )
 
-        x = x.view(batch_size, seq_num, seq_len, hidden_dim)
+        if is_lower:
+            x = x.view(batch_size, seq_num, seq_len, hidden_dim)
 
-        return self.hier_forward(x, text_mask)
+        return self.sublayer[1](x, self.pff)
 
-
-
-    def hier_forward(self, x, text_mask=None):
-        #process for hierarchical vector
-        x = x[:, 0]
-        x = x + self.sent_pos(x)
-
-        #process for hierarchical network
-        if self.model_type == 'hier_lin':
-            out = self.dropout(self.linear(x))
-        elif self.model_type == 'hier_rnn':
-            out = self.dropout(self.rnn(x))
-        elif self.model_type == 'hier_attn':
-            out = self.dropout(self.hier_attn(x, x, x, text_mask))
-        return out
 
 
 
 class Encoder(nn.Module):
     def __init__(self, config):
         super(Encoder, self).__init__()
-        
+
+        self.model_type = config.model_type
+
         self.embeddings = Embeddings(config)
-        self.layer = EncoderLayer(config)
+        layer = EncoderLayer(config)
+        self.layers = clones(layer, config.n_layers)
+
+        self.pos_enc = PositionalEncoding(config)
+        if self.model_type == 'hier_lin':
+            self.lin = PositionwiseFeedForward(config)
+        elif self.model_type == 'hier_rnn':
+            self.rnn = nn.GRU(config.hidden_dim, config.hidden_dim)
+        elif self.model_type == 'hier_attn':
+            self.high_layers = clones(layer, config.n_layers)            
 
 
     def forward(self, x, sent_mask, text_mask=None):
+        #lower layer process
         x = self.embeddings(x)
-        for layer in enumerate(self.sent_layers):
-            x = layer(x, sent_mask=sent_mask, text_mask=text_mask)
+        for layer in self.layers:
+            x = layer(x, sent_mask)
+        
+        x = x[:, :, 0, :]
+        x = self.pos_enc(x)
+
+        if self.model_type == 'hier_lin':
+            x = self.lin(x)
+        elif self.model_type == 'hier_rnn':
+            x = self.rnn(x)[0]
+        elif self.model_type == 'hier_attn':
+            for layer in self.high_layers:
+                x = layer(x, text_mask)        
+        
         return x
+
+
+
+
+class Decoder(nn.Module):
+    def __init__(self, config):
+        super(Decoder, self).__init__()
+
+        layer = nn.TransformerDecoderLayer(
+            d_model=config.hidden_dim,
+            nhead=config.n_heads,
+            dim_feedforward=config.pff_dim,
+            dropout=config.dropout_ratio,
+            activation='gelu',
+            batch_first=True,
+            norm_first=True
+        )
+
+        self.embeddings = Embeddings(config)
+        self.layers = clones(layer, config.n_layers)
+
+
+    def forward(self, x, memory, e_mask=None, d_mask=None):
+        x = self.embeddings(x)
+        for layer in self.layers:
+            x = layer(
+                x, memory, 
+                memory_key_padding_mask=e_mask,
+                tgt_mask=d_mask,
+            )
+
+        return x
+
 
 
 
@@ -119,6 +143,7 @@ class HierModel(nn.Module):
     def enc_mask(self, x):
         sent_mask = x == self.pad_id
         text_mask = sent_mask.all(dim=-1)
+        
         return sent_mask, text_mask
 
 

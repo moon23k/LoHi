@@ -1,2 +1,1 @@
-from .base_model import BaseSummarizer
-from .hier_model import HierSummarizer
+from .hier_model import HierModel

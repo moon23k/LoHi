@@ -105,7 +105,7 @@ if __name__ == '__main__':
     
     args = parser.parse_args()
     assert args.mode.lower() in ['train', 'test', 'inference']
-    assert args.model.lower() in ['base', 'hier_lin', 'hier_rnn', 'hier_attn']
+    assert args.model.lower() in ['hier_base', 'hier_lin', 'hier_rnn', 'hier_attn']
     assert args.search.lower() in ['greedy', 'beam']
 
     if args.task == 'inference':

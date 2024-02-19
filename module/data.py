@@ -5,6 +5,7 @@ from torch.nn.utils.rnn import pad_sequence
 
 
 
+
 class Dataset(torch.utils.data.Dataset):
     def __init__(self, config, tokenizer, split):
         super().__init__()
@@ -17,8 +18,6 @@ class Dataset(torch.utils.data.Dataset):
     def load_data(self, split):
         with open(f"data/{self.data_type}_{split}.json", 'r') as f:
             data = json.load(f)
-        if split == 'train':
-            return data[::10]
         return data
 
 

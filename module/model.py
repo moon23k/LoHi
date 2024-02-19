@@ -1,6 +1,6 @@
 import os, torch
 import torch.nn as nn
-from model import HierSummarizer, BaseSummarizer
+from model import HierModel
 
 
 
@@ -31,15 +31,10 @@ def print_model_desc(model):
 
 
 def load_model(config):
-    
-    if config.model_type == 'base':
-        model = BaseSummarizer(config)
-    elif config.model_type == 'hier':
-        model = HierSummarizer(config)
-
+    model = HierModel(config)
 
     init_weights(model)
-    print(f"Initialized {config.hierarchical} model has loaded")
+    print(f"Initialized {config.model_type} model has loaded")
 
     if config.mode != 'train':
         assert os.path.exists(config.ckpt)
